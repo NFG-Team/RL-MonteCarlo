@@ -37,9 +37,9 @@ class JuegoDiezMil:
             while not fin_de_turno:
                 # Tira los dados que correspondan y calcula su puntaje.
                 dados: list[int] = [randint(1, 6) for _ in range(len(dados_a_tirar))]
+
                 (puntaje_tirada, _) = puntaje_y_no_usados(dados)
                 msg += " " + "".join(map(str, dados)) + " "
-                # print(dados, _)
 
                 if puntaje_tirada == 0:
                     # Mala suerte, no suma nada. Pierde el turno.
@@ -47,15 +47,15 @@ class JuegoDiezMil:
                     puntaje_turno = 0
                     if isinstance(self.jugador, ElBatoQueSoloCalculaPromedios):
                         self.jugador.actualizar_tabla(len(dados_a_tirar), puntaje_turno)
-                    elif isinstance(self.jugador, AgenteQLearning):
-                        self.jugador.actualizar_tabla(len(dados_a_tirar), puntaje_turno)
-                        # print("PERDIO", dados_a_tirar, puntaje_turno)
 
                 else:
                     # Bien, suma puntos. Preguntamos al jugador qué quiere hacer.
-                    jugada, dados_a_tirar = self.jugador.jugar(
-                        puntaje_total, puntaje_turno, dados
-                    )
+                    if isinstance(self.jugador, AgenteQLearning):
+                        jugada, dados_a_tirar = self.jugador.jugar(dados)
+                    else:
+                        jugada, dados_a_tirar = self.jugador.jugar(
+                            puntaje_total, puntaje_turno, dados
+                        )
 
                     if jugada == JUGADA_PLANTARSE:
                         msg += "P"
@@ -65,16 +65,6 @@ class JuegoDiezMil:
                             self.jugador.actualizar_tabla(
                                 len(dados_a_tirar), puntaje_turno
                             )
-                        elif isinstance(self.jugador, AgenteQLearning):
-                            self.jugador.actualizar_tabla(
-                                len(dados_a_tirar), puntaje_turno
-                            )
-                            # print(
-                            #     "SE PLANTO",
-                            #     dados_a_tirar,
-                            #     puntaje_turno,
-                            #     puntaje_tirada,
-                            # )
 
                     elif jugada == JUGADA_TIRAR:
                         dados_a_separar = separar(dados, dados_a_tirar)
@@ -84,14 +74,11 @@ class JuegoDiezMil:
                         )
                         assert puntaje_tirada > 0 and len(dados_no_usados) == 0
                         puntaje_turno += puntaje_tirada
-                        if isinstance(self.jugador, AgenteQLearning):
-                            self.jugador.actualizar_tabla(
-                                len(dados_a_tirar), puntaje_tirada
-                            )
-                            # print("JUGO", dados_a_tirar, puntaje_turno, puntaje_tirada)
-                        # Cuando usó todos los dados, vuelve a tirar todo.
                         if len(dados_a_tirar) == 0:
                             dados_a_tirar = [1, 2, 3, 4, 5, 6]
+                            if isinstance(self.jugador, AgenteQLearning):
+                                self.jugador.prev_state = 6
+                                self.jugador.prev_action = JUGADA_TIRAR
                         msg += "T(" + "".join(map(str, dados_a_tirar)) + ") "
 
             puntaje_total += puntaje_turno
@@ -104,57 +91,54 @@ class JuegoDiezMil:
 
 
 def main():
-    # jugador = JugadorAleatorio("random")
-    # juego = JuegoDiezMil(jugador)
-    # (cantidad_turnos, puntaje_final) = juego.jugar(verbose=True)
-    # print(jugador.nombre, cantidad_turnos, puntaje_final)
-
-    # jugador = JugadorSiempreSePlanta("plantón")
-    # juego = JuegoDiezMil(jugador)
-    # (cantidad_turnos, puntaje_final) = juego.jugar(verbose=True)
-    # print(jugador.nombre, cantidad_turnos, puntaje_final)
-
-    # jugador = ElBatoQueSoloCalculaPromedios(0.05)
-    # jugador_random = JugadorAleatorio("random")
-
+    agents = 10
+    games = 10000
     play_amounts = []
-    for j in tqdm(range(100)):
+    for _ in tqdm(range(agents)):
         player_amounts = []
-        jugador = ElBatoQueSoloCalculaPromedios(0.01)
-        # jugador = AgenteQLearning(0.05, 0.99, 0.05, 0.05)
-
-        for i in tqdm(range(500)):
+        jugador = ElBatoQueSoloCalculaPromedios(
+            0.01, "politica_montecarlo_mala.csv", False
+        )
+        # jugador = JugadorAleatorio("random")
+        for _ in tqdm(range(games)):
             juego = JuegoDiezMil(jugador)
-            # juego_aleatorio = JuegoDiezMil(jugador_random)
             (cantidad_turnos, puntaje_final) = juego.jugar(verbose=False)
-            # (cantidad_turnos_random, puntaje_final_random) = juego_aleatorio.jugar(
-            #     verbose=False
-            # )
             player_amounts.append(cantidad_turnos)
-            # play_amounts_random.append((i, cantidad_turnos_random))
-            # print(jugador.nombre, cantidad_turnos, puntaje_final)
         # jugador.print_table()
         play_amounts.append(player_amounts)
+        jugador.guardar_estados_en_csv()
 
-    # Convert play_amounts to a numpy array for easier manipulation
+    # Convertir a numpy array
     play_amounts = np.array(play_amounts)
 
-    # Calculate the average play amount across all agents for each iteration
+    # Calcular el promedio de las ultimas mil tiradas
     average_play_amounts = np.mean(play_amounts, axis=0)
+    average_total_ult_mil = np.mean(average_play_amounts[-1000:])
 
-    # Plot the average play amounts
     plt.figure(figsize=(10, 6))
     plt.plot(
         range(len(average_play_amounts)),
         average_play_amounts,
         label="Average Play Amounts",
+        color="red",
     )
-    plt.xlabel("Iteration")
-    plt.ylabel("Average Play Amount")
-    plt.title("Average Play Amounts Across 30 Agents Over 1000 Iterations")
-    plt.legend()
+    plt.xlabel("Iteración")
+    plt.ylabel("Cantidad Promedio de Tiradas")
+    plt.title(
+        f"Cantidad Promedio de Jugadas en {agents} Agentes Montecarlo a Través de {games} Iteraciones"
+    )
+
+    plt.text(
+        len(average_play_amounts) - len(average_play_amounts) * 0.05,
+        np.min(average_play_amounts) * 0.98,
+        f"Promedio de ultimas mil tiradas: {average_total_ult_mil:.2f}",
+        fontsize=14,
+        color="red",
+        ha="right",
+    )
+
+    # plt.savefig(f"Random_{agents}_{games}.png")
     plt.show()
-    plt.savefig("Montecarlo.png")
 
 
 if __name__ == "__main__":
